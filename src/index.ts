@@ -1,5 +1,9 @@
+import * as dotenv from "dotenv";
 import * as crypto from "crypto"
+import { fromUnixTime } from "date-fns";
 import fetch from 'node-fetch';
+
+dotenv.config();
 
 const API_HOST = "api4home.solarmanpv.com"
 
@@ -70,7 +74,7 @@ async function stationSearch(token: string, page: number = 1): Promise<{total: n
 
 // History
 
-interface HistoryResponseRecord {
+interface HistoryPowerResponseRecordEntry {
   systemId: number
   dateTime: number
   /** Generated power in W */
@@ -79,7 +83,7 @@ interface HistoryResponseRecord {
   generationCapacity: number
 }
 
-interface HistoryResponseStatistics {
+interface HistoryPowerResponseStatistics {
   id: string
   systemId: number
   year: number
@@ -89,12 +93,12 @@ interface HistoryResponseStatistics {
   fullPowerHoursDay: number
 }
 
-interface HistoryResponse {
-  records: HistoryResponseRecord[]
-  statistics: HistoryResponseStatistics
+interface HistoryPowerRecordResponse {
+  records: HistoryPowerResponseRecordEntry[]
+  statistics: HistoryPowerResponseStatistics
 }
 
-async function historyPower(token: string, stationId: number, time: {year: number, day: number, month: number}) {
+async function historyPowerRecord(token: string, stationId: number, time: {year: number, day: number, month: number}) {
   const response = await fetch(
     `https://${API_HOST}/maintain-s/history/power/${stationId}/record?year=${time.year}&month=${time.month}&day=${time.day}`,
     {
@@ -106,27 +110,33 @@ async function historyPower(token: string, stationId: number, time: {year: numbe
     }
   )
   const data = await response.json();
-  return data as HistoryResponse;
+  return data as HistoryPowerRecordResponse;
 }
 
 
 // DEBUG ---
 
-const USERNAME = "email@example.com";
-const PASSWORD = "password";
-const STATION_ID = 123456;
+const {
+  USERNAME,
+  PASSWORD,
+  STATION_ID
+} = process.env;
 
-getToken(USERNAME, PASSWORD)
+getToken(USERNAME as string, PASSWORD as string)
   .then(response => {
     const { access_token } = response;
     console.log("token:", JSON.stringify(response, undefined, 2));
     const date = new Date();
-    return Promise.all([stationSearch(access_token), historyPower(access_token, STATION_ID, {year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate()})])
+    return Promise.all([stationSearch(access_token), historyPowerRecord(access_token, parseInt(STATION_ID as string), {year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate()})])
   })
   .then(response => {
     const [ searchResponse, historyResponse ] = response;
     const [ home ] = searchResponse.data;
     console.log("home:", JSON.stringify(home, undefined, 2));
     console.log("history:", JSON.stringify(historyResponse, undefined, 2));
+    for (const record of historyResponse.records) {
+      const date = fromUnixTime(record.dateTime);
+      console.log(`  ${date.toISOString()}: ${record.generationPower}W (${record.generationCapacity})`)
+    }
   });
 
